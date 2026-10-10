@@ -1,0 +1,5 @@
+[
+  {"user_id": "priya", "name": "Priya Sharma", "title": "Senior SRE (on-call)", "team": "sre", "roles": ["engineering", "sre", "deployer"]},
+  {"user_id": "alex", "name": "Alex Chen", "title": "Backend Engineer", "team": "payments", "roles": ["engineering", "deployer"]},
+  {"user_id": "jordan", "name": "Jordan Lee", "title": "Contract QA Engineer", "team": "payments", "roles": ["contractor"]}
+]

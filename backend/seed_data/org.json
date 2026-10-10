@@ -1,0 +1,40 @@
+{
+  "people": {
+    "priya": {"name": "Priya Sharma", "title": "Senior SRE", "team": "sre", "email": "priya@acmepay.example", "chat": "@priya"},
+    "alex": {"name": "Alex Chen", "title": "Backend Engineer", "team": "payments", "email": "alex@acmepay.example", "chat": "@alex"},
+    "sofia": {"name": "Sofia Martins", "title": "Ledger Team Lead", "team": "ledger", "email": "sofia@acmepay.example", "chat": "@sofia"},
+    "marcus": {"name": "Marcus Okafor", "title": "Payments Team Lead", "team": "payments", "email": "marcus@acmepay.example", "chat": "@marcus"},
+    "rahul": {"name": "Rahul Iyer", "title": "Security Engineer", "team": "security", "email": "rahul@acmepay.example", "chat": "@rahul"},
+    "dana": {"name": "Dana Whitfield", "title": "VP Engineering", "team": "leadership", "email": "dana@acmepay.example", "chat": "@dana"},
+    "jordan": {"name": "Jordan Lee", "title": "Contract QA Engineer", "team": "payments", "email": "jordan@contractor.example", "chat": "@jordan"}
+  },
+  "teams": {
+    "sre": {"name": "SRE", "lead": "priya", "channel": "#sre"},
+    "payments": {"name": "Payments", "lead": "marcus", "channel": "#payments-eng"},
+    "ledger": {"name": "Ledger", "lead": "sofia", "channel": "#ledger-oncall"},
+    "security": {"name": "Security", "lead": "rahul", "channel": "#security"}
+  },
+  "services": {
+    "api-gateway": {"owner_team": "sre", "depends_on": ["payments-api"], "tier": 0},
+    "payments-api": {"owner_team": "payments", "depends_on": ["fraud-scorer", "ledger-service", "payments-db"], "tier": 0},
+    "fraud-scorer": {"owner_team": "payments", "depends_on": [], "tier": 1},
+    "ledger-service": {"owner_team": "ledger", "depends_on": ["ledger-db"], "tier": 0},
+    "payments-db": {"owner_team": "sre", "depends_on": [], "tier": 0},
+    "ledger-db": {"owner_team": "sre", "depends_on": [], "tier": 0}
+  },
+  "oncall": {
+    "sre": {"primary": "priya", "secondary": "rahul"},
+    "payments": {"primary": "alex", "secondary": "marcus"},
+    "ledger": {"primary": "sofia", "secondary": "marcus"},
+    "security": {"primary": "rahul", "secondary": "priya"}
+  },
+  "calendar": {
+    "priya": [],
+    "alex": [{"start": "10:00", "end": "11:00", "title": "Sprint planning"}],
+    "sofia": [{"start": "09:30", "end": "10:30", "title": "Ledger 5.8 release review"}],
+    "marcus": [{"start": "13:00", "end": "14:00", "title": "1:1 with Dana"}],
+    "rahul": [],
+    "dana": [{"start": "09:00", "end": "12:00", "title": "Board prep"}],
+    "jordan": []
+  }
+}

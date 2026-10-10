@@ -1,0 +1,23 @@
+{
+  "_comment": "Simulated live telemetry for the demo scenario (mock monitoring adapter).",
+  "services": {
+    "payments-api": {
+      "status": "degraded",
+      "error_rate_pct": 6.8,
+      "dominant_status_code": 502,
+      "p99_latency_ms": 2050,
+      "last_deploy": {"version": "v2.42.0", "deployed_at_minutes_ago": 22, "deployed_by": "alex", "previous_version": "v2.41.3"},
+      "recent_log_signatures": ["ledger client: context deadline exceeded (2s)"]
+    },
+    "ledger-service": {
+      "status": "degraded",
+      "error_rate_pct": 0.4,
+      "p99_latency_ms": 2900,
+      "feature_flags": {"ledger_async_writes": {"enabled": true, "changed_minutes_ago": 31, "changed_by": "sofia"}},
+      "recent_log_signatures": ["write queue lag 48s"]
+    },
+    "api-gateway": {"status": "healthy", "error_rate_pct": 6.7, "note": "502s are upstream (payments-api)"},
+    "fraud-scorer": {"status": "healthy", "error_rate_pct": 0.0, "p99_latency_ms": 120},
+    "payments-db": {"status": "healthy", "connections_used_pct": 41}
+  }
+}
