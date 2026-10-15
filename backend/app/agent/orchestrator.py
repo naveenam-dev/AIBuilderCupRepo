@@ -2,14 +2,13 @@
 
 Event types: status, tool_call, tool_result, action_proposed, sop, error, done.
 """
-import json
 import logging
 import time
 from collections.abc import Iterator
-from typing import Any
 
 from google.genai import types
 
+from app.agent.common import Event, execute_tool, plain, preview, tool_payload
 from app.agent.grounding import verify_sop
 from app.agent.prompts import SUBMIT_SOP, system_prompt
 from app.config import Settings
@@ -19,19 +18,6 @@ from app.tools.base import ToolContext
 from app.tools.registry import ToolRegistry
 
 log = logging.getLogger(__name__)
-Event = dict[str, Any]
-
-
-def _plain(value: Any) -> Any:
-    """Normalize SDK argument objects into JSON-safe Python values."""
-    return json.loads(json.dumps(value, default=str))
-
-
-def _preview(result: Any) -> str:
-    if isinstance(result, dict) and isinstance(result.get("results"), list):
-        return f"{len(result['results'])} result(s): " + "; ".join(r["title"] for r in result["results"][:4])
-    text = json.dumps(result, default=str)
-    return text if len(text) <= 240 else text[:237] + "..."
 
 
 class Orchestrator:
@@ -93,7 +79,7 @@ class Orchestrator:
 
             responses = []
             for fc in calls:
-                args = _plain(fc.args or {})
+                args = plain(fc.args or {})
                 if fc.name == "submit_sop":
                     sop = verify_sop(args, ctx, proposed)
                     sop["elapsed_s"] = round(time.monotonic() - started, 1)
@@ -112,9 +98,9 @@ class Orchestrator:
                 result = self._execute(fc.name, args, ctx, principal, proposed)
                 if "action" in result:
                     yield {"type": "action_proposed", "id": call_id, "action": result["action"]}
-                yield {"type": "tool_result", "id": call_id, "name": fc.name, "preview": _preview(result),
+                yield {"type": "tool_result", "id": call_id, "name": fc.name, "preview": preview(result),
                        "ok": "error" not in result}
-                responses.append(types.Part.from_function_response(name=fc.name, response=_tool_payload(result)))
+                responses.append(types.Part.from_function_response(name=fc.name, response=tool_payload(result)))
             contents.append(types.Content(role="user", parts=responses))
             if call_seq >= self.s.max_tool_calls:
                 config.tool_config = types.ToolConfig(
@@ -124,30 +110,4 @@ class Orchestrator:
         yield {"type": "error", "message": "Agent did not produce a procedure within the step budget"}
 
     def _execute(self, name: str, args: dict, ctx: ToolContext, principal: Principal, proposed: set[str]) -> dict:
-        tool = self.registry.get(name)
-        if tool is None or not tool.permitted(principal):
-            self.actions.log(principal, name, args, "denied")
-            return {"error": f"Tool '{name}' is not available to this user."}
-        if tool.requires_approval:
-            action = self.actions.propose(principal, name, args)
-            proposed.add(action.id)
-            return {
-                "status": "pending_user_approval",
-                "action_id": action.id,
-                "note": "Queued for the user's approval. Reference this action_id in the matching SOP step.",
-                "action": action.model_dump(mode="json"),
-            }
-        try:
-            result = tool.execute(args, ctx)
-            ctx.tools_called.add(name)
-            self.actions.log(principal, name, args, "ok")
-            return result
-        except Exception as e:
-            log.exception("Tool %s failed", name)
-            self.actions.log(principal, name, args, f"error: {e}")
-            return {"error": str(e)}
-
-
-def _tool_payload(result: dict) -> dict:
-    # The UI-only "action" object is not useful to the model.
-    return {k: v for k, v in result.items() if k != "action"}
+        return execute_tool(self.registry, self.actions, name, args, ctx, principal, proposed)

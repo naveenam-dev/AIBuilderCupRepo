@@ -1,6 +1,7 @@
 """Composition root: wires settings, stores, adapters and services together."""
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from app.agent.orchestrator import Orchestrator
 from app.auth.provider import AuthProvider, DemoAuthProvider
@@ -31,7 +32,7 @@ class Container:
     registry: ToolRegistry
     actions: ActionService
     auth: AuthProvider
-    orchestrator: Orchestrator | None
+    orchestrator: Any  # Orchestrator (sync events) or AdkOrchestrator (async events)
 
     def ingest(self) -> dict:
         return ingest(seed_connectors(self.settings.seed_dir), self.embedder, self.store, self.settings)
@@ -88,5 +89,13 @@ def build_container(settings: Settings, llm_client=None, use_llm: bool = True) -
         registry=registry,
         actions=actions,
         auth=build_auth(settings),
-        orchestrator=Orchestrator(llm_client, settings, registry, actions) if use_llm else None,
+        orchestrator=build_orchestrator(settings, llm_client, registry, actions) if use_llm else None,
     )
+
+
+def build_orchestrator(settings: Settings, llm_client, registry: ToolRegistry, actions: ActionService):
+    if settings.agent_runtime == "adk":
+        from app.agent.adk_runtime import AdkOrchestrator
+
+        return AdkOrchestrator(llm_client, settings, registry, actions)
+    return Orchestrator(llm_client, settings, registry, actions)

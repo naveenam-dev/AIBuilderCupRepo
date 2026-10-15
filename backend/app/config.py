@@ -43,10 +43,13 @@ class Settings(BaseSettings):
     rrf_k: int = 60
 
     # --- Agent ---
+    # "adk": Google Agent Development Kit runtime; "native": hand-written Gemini function-calling loop.
+    agent_runtime: Literal["native", "adk"] = "native"
     max_agent_steps: int = 8  # model turns
     max_tool_calls: int = 12  # total tool invocations per question (parallel calls count individually)
     llm_temperature: float = 0.2
     llm_thinking_level: Literal["minimal", "low", "medium", "high", ""] = "low"  # "" = model default
+    llm_timeout_ms: int = 60_000  # per Vertex AI request; retried up to 3 attempts
 
     # --- Operational state (approvals, audit log, inboxes, device tokens, org graph) ---
     state_store: Literal["memory", "firestore"] = "memory"

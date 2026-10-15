@@ -170,7 +170,7 @@ export default function App() {
         </div>
         {health && (
           <div className="health" title={`Embeddings: ${health.embed_model} · sign-in: ${health.auth} · chat: ${health.chat}`}>
-            <span className="dot ok" /> {health.llm_model} · {health.vector_store} · {health.state_store} · {health.chunks} chunks
+            <span className="dot ok" /> {health.agent_runtime === "adk" ? "ADK · " : ""}{health.llm_model} · {health.vector_store} · {health.state_store} · {health.chunks} chunks
           </div>
         )}
       </header>

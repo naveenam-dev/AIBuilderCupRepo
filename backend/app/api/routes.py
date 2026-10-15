@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -51,7 +51,7 @@ def health(c: Container = Depends(container)):
     s = c.settings
     return {"status": "ok", "chunks": c.store.count(), "vector_store": s.vector_store, "llm_model": s.llm_model,
             "embed_model": s.embed_model if s.embedder == "vertex" else "fake", "state_store": s.state_store,
-            "auth": s.auth_provider, "chat": s.chat_adapter}
+            "auth": s.auth_provider, "chat": s.chat_adapter, "agent_runtime": s.agent_runtime}
 
 
 @router.get("/client-config")
@@ -108,11 +108,18 @@ def chat(body: ChatRequest, user: Principal = Depends(current_user), c: Containe
     if c.orchestrator is None:
         raise HTTPException(503, "LLM is not configured")
 
+    events = c.orchestrator.run(body.message, user, [m.model_dump() for m in body.history])
+
     def stream() -> Iterator[str]:
-        for event in c.orchestrator.run(body.message, user, [m.model_dump() for m in body.history]):
+        for event in events:
             yield f"data: {json.dumps(event, default=str)}\n\n"
 
-    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+    async def astream() -> AsyncIterator[str]:  # the ADK runtime yields events asynchronously
+        async for event in events:
+            yield f"data: {json.dumps(event, default=str)}\n\n"
+
+    body_iter = astream() if hasattr(events, "__aiter__") else stream()
+    return StreamingResponse(body_iter, media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 @router.post("/actions/{action_id}/{decision}")

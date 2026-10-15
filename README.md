@@ -17,7 +17,8 @@ Firebase Hosting (React UI) ──/api/**──► Cloud Run: FastAPI
         └─ FCM web push ── pages arrive as notifications
 
 Cloud Run: FastAPI
-  ├─ Agent orchestrator ── Gemini (Vertex AI) function calling
+  ├─ Agent: Google Agent Development Kit (LlmAgent + Runner) ── Gemini on Vertex AI
+  │     │   budgets via before_tool / before_model callbacks; submit_sop ends every run
   │     └─ Tool registry ── search_knowledge · get_service_status · get_service_info · get_oncall
   │                         check_availability · create_incident_ticket* · send_chat_message*  (*approval)
   ├─ Grounding guard: citations must point at evidence this user retrieved
@@ -32,7 +33,7 @@ Two databases, each for what it does best: **AlloyDB** answers "which authorized
 |---|---|
 | Source connectors (Slack/Confluence/Drive/Jira/Gmail stubs) | `backend/app/connectors/` |
 | Hybrid search + RBAC | `backend/app/retrieval/` (`alloydb_store.py` has the single-query hybrid SQL) |
-| Agent loop, prompts, grounding | `backend/app/agent/` |
+| Agent: ADK runtime (`adk_runtime.py`, default) or native Gemini loop (`orchestrator.py`), prompts, grounding | `backend/app/agent/` (`AGENT_RUNTIME=adk\|native`) |
 | Tools and adapters (incl. Firebase chat: Firestore inbox + FCM) | `backend/app/tools/` |
 | Operational state: memory or Firestore | `backend/app/state/` |
 | Auth: demo JWT or Firebase Auth | `backend/app/auth/` |

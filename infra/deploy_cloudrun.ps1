@@ -7,7 +7,8 @@ param(
   [ValidateSet("memory", "alloydb")][string]$Store = "alloydb",
   [string]$AlloyDbInstanceUri = "projects/aibuildercupprj/locations/us-central1/clusters/second-brain/instances/primary",
   [bool]$Firebase = $true,
-  [int]$MaxInstances = 3
+  [int]$MaxInstances = 3,
+  [ValidateSet("adk", "native")][string]$AgentRuntime = "adk"
 )
 $ErrorActionPreference = "Continue"   # gcloud writes progress to stderr
 $Root = Split-Path $PSScriptRoot -Parent
@@ -27,7 +28,7 @@ foreach ($role in "roles/aiplatform.user", "roles/alloydb.client", "roles/alloyd
 gcloud iam service-accounts add-iam-policy-binding $Sa --member "serviceAccount:$Sa" --role roles/iam.serviceAccountTokenCreator --project $Project --quiet | Out-Null
 
 $JwtSecret = -join ((1..48) | ForEach-Object { [char](Get-Random -Minimum 65 -Maximum 90) })
-$Vars = @("GCP_PROJECT=$Project", "VECTOR_STORE=$Store", "JWT_SECRET=$JwtSecret")
+$Vars = @("GCP_PROJECT=$Project", "VECTOR_STORE=$Store", "JWT_SECRET=$JwtSecret", "AGENT_RUNTIME=$AgentRuntime")
 if ($Store -eq "alloydb") {
   # Passwordless: the service account authenticates to Postgres as an IAM database user.
   $Vars += @("ALLOYDB_INSTANCE_URI=$AlloyDbInstanceUri", "ALLOYDB_IAM_AUTH=true", "ALLOYDB_USER=$SaName@$Project.iam")

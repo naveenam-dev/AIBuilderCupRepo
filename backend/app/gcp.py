@@ -13,6 +13,7 @@ from functools import lru_cache
 import google.auth
 import google.auth.credentials
 from google import genai
+from google.genai import types
 from google.auth.exceptions import DefaultCredentialsError
 
 from app.config import get_settings
@@ -45,4 +46,7 @@ def get_credentials() -> google.auth.credentials.Credentials:
 @lru_cache
 def get_genai_client() -> genai.Client:
     s = get_settings()
-    return genai.Client(vertexai=True, project=s.gcp_project, location=s.gcp_location, credentials=get_credentials())
+    # Bounded requests with retries: a stalled connection fails over instead of hanging an agent run.
+    http = types.HttpOptions(timeout=s.llm_timeout_ms, retry_options=types.HttpRetryOptions(attempts=3))
+    return genai.Client(vertexai=True, project=s.gcp_project, location=s.gcp_location, credentials=get_credentials(),
+                        http_options=http)

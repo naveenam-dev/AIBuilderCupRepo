@@ -22,6 +22,7 @@ export interface Health {
   state_store: string;
   auth: string;
   chat: string;
+  agent_runtime: string;
 }
 
 export interface InboxMessage {
