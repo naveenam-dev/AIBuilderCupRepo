@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import type { Action, Persona, Sop, Source, TraceItem, Turn } from "./types";
+import type { Action, InboxMessage, Persona, Sop, Source, TraceItem, Turn } from "./types";
 
 const TOOL_LABELS: Record<string, string> = {
   search_knowledge: "Searched knowledge",
@@ -96,7 +96,11 @@ export function ActionCard({ action, onDecide }: { action: Action; onDecide: (id
       ) : (
         <div className="action-result">
           {action.status === "executed" && typeof r.key === "string" && <>✓ Created <a href={String(r.url)} target="_blank" rel="noreferrer">{r.key}</a></>}
-          {action.status === "executed" && r.delivered === true && <>✓ Sent to {String(r.target)}</>}
+          {action.status === "executed" && r.delivered === true && (
+            <>✓ {Array.isArray(r.recipients) && r.recipients.length ? `Paged ${(r.recipients as string[]).join(", ")}` : `Sent to ${String(r.target)}`}
+              {typeof r.push_notifications === "number" && r.push_notifications > 0 && <span className="push-note"> · {r.push_notifications} push</span>}</>
+          )}
+          {action.status === "executed" && r.delivered === false && <>No one is on call for {String(r.target)}</>}
           {action.status === "rejected" && "Rejected"}
           {action.status === "failed" && `Failed: ${String(r.error ?? "unknown error")}`}
         </div>
@@ -196,5 +200,40 @@ export function SourcesPanel({ sources, highlight }: { sources: Source[]; highli
         </li>
       ))}
     </ol>
+  );
+}
+
+function timeAgo(iso: string) {
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
+}
+
+export function InboxPanel({ messages }: { messages: InboxMessage[] }) {
+  if (!messages.length) return <p className="muted">Pages sent to you appear here live, from Firestore.</p>;
+  return (
+    <ol className="inbox">
+      {messages.map((m) => (
+        <li key={m.id}>
+          <div className="inbox-head">
+            <span className="inbox-target">{m.target}</span>
+            <span className="inbox-meta">{m.sender} · {timeAgo(m.created_at)}</span>
+          </div>
+          <p className="inbox-text"><Rich text={m.text} /></p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function Toasts({ items, onDismiss }: { items: InboxMessage[]; onDismiss: (id: string) => void }) {
+  return (
+    <div className="toasts" role="status" aria-live="polite">
+      {items.map((m) => (
+        <button key={m.id} className="toast" onClick={() => onDismiss(m.id)} title="Dismiss">
+          <strong>Page · {m.target}</strong>
+          <span>{m.sender}: {m.text.length > 140 ? m.text.slice(0, 137) + "…" : m.text}</span>
+        </button>
+      ))}
+    </div>
   );
 }

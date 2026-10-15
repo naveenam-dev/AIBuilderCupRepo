@@ -42,11 +42,29 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = []
 
 
+class DeviceRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=4096)
+
+
 @router.get("/health")
 def health(c: Container = Depends(container)):
     s = c.settings
     return {"status": "ok", "chunks": c.store.count(), "vector_store": s.vector_store, "llm_model": s.llm_model,
-            "embed_model": s.embed_model if s.embedder == "vertex" else "fake"}
+            "embed_model": s.embed_model if s.embedder == "vertex" else "fake", "state_store": s.state_store,
+            "auth": s.auth_provider, "chat": s.chat_adapter}
+
+
+@router.get("/client-config")
+def client_config(c: Container = Depends(container)):
+    """Public browser configuration: which sign-in flow to use and the Firebase web app config."""
+    s = c.settings
+    return {
+        "auth": s.auth_provider,
+        "state_store": s.state_store,
+        "push": s.chat_adapter == "firebase",
+        "firebase": json.loads(s.firebase_web_config) if s.firebase_web_config else None,
+        "stream_url": s.public_api_url or None,
+    }
 
 
 @router.get("/personas")
@@ -57,9 +75,22 @@ def personas(c: Container = Depends(container)):
 @router.post("/auth/demo-login")
 def demo_login(body: LoginRequest, c: Container = Depends(container)):
     try:
-        return {"token": c.auth.issue(body.user_id), "user": c.auth.personas[body.user_id].model_dump()}
+        return {"token": c.auth.issue(body.user_id), "token_type": c.auth.token_type,
+                "user": c.auth.personas[body.user_id].model_dump()}
     except KeyError:
         raise HTTPException(404, "Unknown persona")
+
+
+@router.get("/me")
+def me(user: Principal = Depends(current_user)):
+    return user.model_dump()
+
+
+@router.post("/devices")
+def register_device(body: DeviceRequest, user: Principal = Depends(current_user), c: Container = Depends(container)):
+    """Store this browser's Firebase Cloud Messaging token so pages to this user reach it as push."""
+    c.state.add_device_token(user.user_id, body.token)
+    return {"registered": True}
 
 
 @router.get("/search")
@@ -98,8 +129,8 @@ def decide(action_id: str, decision: str, user: Principal = Depends(current_user
 
 @router.get("/audit")
 def audit(user: Principal = Depends(current_user), c: Container = Depends(container)):
-    entries = c.actions.audit if "sre" in user.roles else [e for e in c.actions.audit if e.user_id == user.user_id]
-    return [e.model_dump(mode="json") for e in entries[-100:]]
+    entries = c.state.list_audit(None if "sre" in user.roles else user.user_id)
+    return [e.model_dump(mode="json") for e in entries]
 
 
 @router.post("/ingest")

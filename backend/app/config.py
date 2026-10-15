@@ -48,19 +48,33 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_thinking_level: Literal["minimal", "low", "medium", "high", ""] = "low"  # "" = model default
 
+    # --- Operational state (approvals, audit log, inboxes, device tokens, org graph) ---
+    state_store: Literal["memory", "firestore"] = "memory"
+    firestore_database: str = "(default)"
+    org_cache_seconds: int = 30  # org graph re-read from Firestore at most this often
+
     # --- Integration adapters: "mock" now, "real" once implemented ---
     jira_adapter: Literal["mock", "real"] = "mock"
-    chat_adapter: Literal["mock", "real"] = "mock"
+    # "firebase": Firestore inbox + Firebase Cloud Messaging web push.
+    chat_adapter: Literal["mock", "firebase", "real"] = "mock"
     calendar_adapter: Literal["mock", "real"] = "mock"
     monitoring_adapter: Literal["mock", "real"] = "mock"
 
     # --- Auth ---
-    auth_provider: Literal["demo"] = "demo"
+    # "firebase": personas sign in with Firebase custom tokens; Google sign-in users via Firebase Auth.
+    auth_provider: Literal["demo", "firebase"] = "demo"
+    # Service account that signs Firebase custom tokens (needed when running with user credentials).
+    firebase_signer_sa: str = ""
+    # Public Firebase web config (JSON) served to the browser at /api/client-config.
+    firebase_web_config: str = ""
     jwt_secret: str = "dev-only-change-me"
     jwt_ttl_minutes: int = 12 * 60
 
     # --- Web ---
     cors_origins: list[str] = ["http://localhost:5173"]
+    # Direct Cloud Run URL for the streaming chat endpoint. Firebase Hosting rewrites buffer SSE (and cap
+    # requests at 60 s), so a UI served from Hosting streams /api/chat from here instead.
+    public_api_url: str = ""
     frontend_dist: Path = BACKEND_DIR.parent / "frontend" / "dist"
 
 

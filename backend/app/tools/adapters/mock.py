@@ -39,14 +39,15 @@ class MockChat(ChatAdapter):
 class MockCalendar(CalendarAdapter):
     """Uses a fixed demo clock so availability is reproducible."""
 
-    def __init__(self, org: dict, demo_time: str = "09:45"):
-        self.events: dict[str, list[dict]] = org.get("calendar", {})
+    def __init__(self, org, demo_time: str = "09:45"):
+        self.org = org  # OrgGraph: calendars live alongside the org graph and are re-read with it
         self.now = demo_time
 
     def availability(self, person_ids):
+        calendars: dict[str, list[dict]] = self.org.raw.get("calendar", {})
         out = {}
         for pid in person_ids:
-            events = self.events.get(pid)
+            events = calendars.get(pid)
             if events is None:
                 out[pid] = {"error": "unknown person"}
                 continue

@@ -10,7 +10,7 @@ RESTRICTED = {"conf-postmortem-2026-03-mtls", "jira-SEC-77", "slack-sre-gateway-
 
 @pytest.fixture(scope="module")
 def c():
-    container = build_container(Settings(embedder="fake", vector_store="memory"), use_llm=False)
+    container = build_container(Settings(_env_file=None, embedder="fake", vector_store="memory"), use_llm=False)
     container.ingest()
     return container
 

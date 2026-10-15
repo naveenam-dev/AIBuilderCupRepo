@@ -1,13 +1,46 @@
-"""Organizational dependency map: people, teams, service ownership, dependencies and on-call."""
+"""Organizational dependency map: people, teams, service ownership, dependencies and on-call.
+
+Read from the state store (Firestore `org/*` documents, editable live) with a short cache; falls back to
+the seed file when the store has no org graph yet."""
 import json
+import threading
+import time
 from pathlib import Path
+
+from app.state.base import StateStore
 
 
 class OrgGraph:
-    def __init__(self, path: Path):
-        self.raw = json.loads(path.read_text(encoding="utf-8"))
-        self.people, self.teams = self.raw["people"], self.raw["teams"]
-        self.services, self.oncall = self.raw["services"], self.raw["oncall"]
+    def __init__(self, seed_path: Path, state: StateStore | None = None, ttl_seconds: int = 30):
+        self._seed = json.loads(seed_path.read_text(encoding="utf-8"))
+        self._state, self._ttl = state, ttl_seconds
+        self._raw, self._loaded_at = self._seed, 0.0
+        self._lock = threading.Lock()
+
+    @property
+    def raw(self) -> dict:
+        if self._state is not None and time.monotonic() - self._loaded_at > self._ttl:
+            with self._lock:
+                if time.monotonic() - self._loaded_at > self._ttl:
+                    self._raw = self._state.load_org() or self._seed
+                    self._loaded_at = time.monotonic()
+        return self._raw
+
+    @property
+    def people(self) -> dict:
+        return self.raw["people"]
+
+    @property
+    def teams(self) -> dict:
+        return self.raw["teams"]
+
+    @property
+    def services(self) -> dict:
+        return self.raw["services"]
+
+    @property
+    def oncall(self) -> dict:
+        return self.raw["oncall"]
 
     def person(self, pid: str) -> dict:
         p = self.people.get(pid)
@@ -23,6 +56,9 @@ class OrgGraph:
             "primary": self.person(rota["primary"]),
             "secondary": self.person(rota["secondary"]),
         }
+
+    def team_for_channel(self, channel: str) -> str | None:
+        return next((t for t, v in self.teams.items() if v.get("channel") == channel), None)
 
     def service_info(self, service: str) -> dict:
         svc = self.services.get(service)

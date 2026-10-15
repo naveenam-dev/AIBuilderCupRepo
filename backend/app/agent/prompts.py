@@ -26,6 +26,7 @@ otherwise use "unknown". Confidence is "high" only when several independent sour
 
 Grounding rules (strict):
 - Every step must cite its evidence: chunk_ids returned by search_knowledge, or "tool:<tool_name>" for live data.
+  Put citations only in the `citations` field; never write chunk ids or "tool:..." references in the text.
 - Only state commands, thresholds, names and ticket ids that appear in that evidence. Never invent them.
 - If evidence is missing or the user lacks access, say so in `gaps`, keep confidence low, and recommend \
 escalating to the right on-call person instead of guessing.

@@ -1,0 +1,18 @@
+rules_version = '2';
+// The browser only ever READS its own data, live. Every write goes through the backend (Admin SDK),
+// where roles and approval rights are checked.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Approval cards: each user sees only the actions they requested.
+    match /actions/{actionId} {
+      allow read: if request.auth != null && resource.data.requested_by == request.auth.uid;
+    }
+    // Pages and notifications addressed to the signed-in user.
+    match /users/{uid}/inbox/{messageId} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

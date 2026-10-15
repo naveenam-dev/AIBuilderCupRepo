@@ -6,6 +6,32 @@ export interface Persona {
   roles: string[];
 }
 
+export interface ClientConfig {
+  auth: "demo" | "firebase";
+  state_store: "memory" | "firestore";
+  push: boolean;
+  firebase: Record<string, string> | null;
+  stream_url: string | null;
+}
+
+export interface Health {
+  chunks: number;
+  vector_store: string;
+  llm_model: string;
+  embed_model: string;
+  state_store: string;
+  auth: string;
+  chat: string;
+}
+
+export interface InboxMessage {
+  id: string;
+  target: string;
+  text: string;
+  sender: string;
+  created_at: string;
+}
+
 export interface Action {
   id: string;
   tool: string;

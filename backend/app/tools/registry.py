@@ -2,6 +2,7 @@
 from app.config import Settings
 from app.models import Principal
 from app.retrieval.service import RetrievalService
+from app.state.base import StateStore
 from app.tools import builtin
 from app.tools.adapters import mock, real
 from app.tools.base import ActionTool
@@ -20,12 +21,20 @@ class ToolRegistry:
         return [t for t in self.tools.values() if t.permitted(principal)]
 
 
-def build_registry(settings: Settings, retrieval: RetrievalService) -> ToolRegistry:
-    org = OrgGraph(settings.seed_dir / "org.json")
+def _chat_adapter(settings: Settings, state: StateStore, org: OrgGraph):
+    if settings.chat_adapter == "firebase":
+        from app.firebase import get_firebase_app
+        from app.tools.adapters.firebase_chat import FirebaseChat
+
+        return FirebaseChat(state, org, get_firebase_app())
+    return mock.MockChat() if settings.chat_adapter == "mock" else real.SlackChat()
+
+
+def build_registry(settings: Settings, retrieval: RetrievalService, state: StateStore, org: OrgGraph) -> ToolRegistry:
     pick = lambda choice, mock_impl, real_cls: mock_impl if choice == "mock" else real_cls()  # noqa: E731
     ticketing = pick(settings.jira_adapter, mock.MockTicketing(), real.JiraCloudTicketing)
-    chat = pick(settings.chat_adapter, mock.MockChat(), real.SlackChat)
-    calendar = pick(settings.calendar_adapter, mock.MockCalendar(org.raw), real.GoogleCalendarAvailability)
+    chat = _chat_adapter(settings, state, org)
+    calendar = pick(settings.calendar_adapter, mock.MockCalendar(org), real.GoogleCalendarAvailability)
     monitoring = pick(
         settings.monitoring_adapter, mock.MockMonitoring(settings.seed_dir / "monitoring.json"), real.CloudMonitoringStatus
     )

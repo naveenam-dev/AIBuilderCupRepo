@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { PersonaSwitcher, SourcesPanel, TurnView } from "./components";
-import type { Action, AgentEvent, Persona, Turn } from "./types";
+import { InboxPanel, PersonaSwitcher, SourcesPanel, Toasts, TurnView } from "./components";
+import { enablePush, firebaseEnabled, initFirebase, watchActions, watchInbox } from "./firebase";
+import type { Action, AgentEvent, ClientConfig, Health, InboxMessage, Persona, Turn } from "./types";
+
+type PushState = "off" | "on" | "blocked" | "unsupported";
 
 const SUGGESTIONS = [
   "payments-api is throwing 502s, started about 20 minutes ago. What do I do?",
@@ -12,18 +15,25 @@ const SUGGESTIONS = [
 export default function App() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [persona, setPersona] = useState<Persona>();
-  const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>>>();
+  const [health, setHealth] = useState<Health>();
+  const [cfg, setCfg] = useState<ClientConfig>();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [actions, setActions] = useState<Record<string, Action>>({});
+  const [inbox, setInbox] = useState<InboxMessage[]>([]);
+  const [toasts, setToasts] = useState<InboxMessage[]>([]);
+  const [push, setPush] = useState<PushState>("off");
   const [input, setInput] = useState("");
   const [highlight, setHighlight] = useState<string>();
   const [bootError, setBootError] = useState<string>();
   const endRef = useRef<HTMLDivElement>(null);
   const busy = turns.some((t) => t.running);
+  const live = cfg?.state_store === "firestore" && !!cfg.firebase;
 
   useEffect(() => {
-    Promise.all([api.personas(), api.health()])
-      .then(async ([ps, h]) => {
+    Promise.all([api.config(), api.personas(), api.health()])
+      .then(async ([c, ps, h]) => {
+        if (c.firebase) initFirebase(c.firebase);
+        setCfg(c);
         setPersonas(ps);
         setHealth(h);
         await api.login(ps[0].user_id);
@@ -31,6 +41,59 @@ export default function App() {
       })
       .catch((e) => setBootError(String(e)));
   }, []);
+
+  // Live Firestore listeners for the signed-in user: approval card status and their inbox of pages.
+  useEffect(() => {
+    if (!persona || !live || !firebaseEnabled()) return;
+    setInbox([]);
+    const report = (what: string) => (e: Error) => console.warn(`Live ${what} unavailable:`, e.message);
+    const stopActions = watchActions(
+      persona.user_id,
+      (a) => setActions((all) => (all[a.id] ? { ...all, [a.id]: { ...all[a.id], ...a } } : all)),
+      report("approval status"),
+    );
+    const stopInbox = watchInbox(
+      persona.user_id,
+      (all, fresh) => {
+        setInbox(all);
+        if (fresh.length) setToasts((t) => [...fresh, ...t].slice(0, 3));
+      },
+      report("inbox"),
+    );
+    return () => {
+      stopActions();
+      stopInbox();
+    };
+  }, [persona?.user_id, live]);
+
+  useEffect(() => {
+    if (!toasts.length) return;
+    const timer = setTimeout(() => setToasts((t) => t.slice(0, -1)), 8000);
+    return () => clearTimeout(timer);
+  }, [toasts]);
+
+  async function turnOnAlerts() {
+    try {
+      const token = await enablePush();
+      if (!token) {
+        setPush(typeof Notification !== "undefined" && Notification.permission === "denied" ? "blocked" : "unsupported");
+        return;
+      }
+      await api.registerDevice(token);
+      setPush("on");
+    } catch {
+      setPush("unsupported");
+    }
+  }
+
+  async function signInWithGoogle() {
+    try {
+      setPersona(await api.loginWithGoogle());
+      setPush("off");
+    } catch (err) {
+      alert(`Google sign-in failed: ${err}`);
+    }
+  }
 
   // Block body on purpose: scrollIntoView returns a Promise in newer browsers, and an effect's return
   // value is treated as its cleanup function.
@@ -41,6 +104,7 @@ export default function App() {
   async function switchPersona(p: Persona) {
     await api.login(p.user_id);
     setPersona(p);
+    setPush("off"); // the device token is registered per signed-in user
   }
 
   function patchLast(fn: (t: Turn) => Turn) {
@@ -105,8 +169,8 @@ export default function App() {
           </div>
         </div>
         {health && (
-          <div className="health" title={`Embeddings: ${health.embed_model}`}>
-            <span className="dot ok" /> {health.llm_model} · {health.vector_store} · {health.chunks} chunks
+          <div className="health" title={`Embeddings: ${health.embed_model} · sign-in: ${health.auth} · chat: ${health.chat}`}>
+            <span className="dot ok" /> {health.llm_model} · {health.vector_store} · {health.state_store} · {health.chunks} chunks
           </div>
         )}
       </header>
@@ -114,6 +178,20 @@ export default function App() {
       <div className="persona-bar">
         <span className="label">Signed in as</span>
         <PersonaSwitcher personas={personas} active={persona} onSelect={switchPersona} disabled={busy} />
+        {cfg?.auth === "firebase" && (
+          persona && !personas.some((p) => p.user_id === persona.user_id) ? (
+            <span className="signed-in" title={`Roles: ${persona.roles.join(", ") || "none (public documents only)"}`}>
+              Google: {persona.name}
+            </span>
+          ) : (
+            <button className="btn ghost" onClick={signInWithGoogle} disabled={busy}>Sign in with Google</button>
+          )
+        )}
+        {cfg?.push && persona && (
+          <button className="btn ghost" onClick={turnOnAlerts} disabled={push === "on"}>
+            {push === "on" ? "🔔 Alerts on" : push === "blocked" ? "Alerts blocked in browser" : push === "unsupported" ? "Alerts unavailable" : "Turn on alerts"}
+          </button>
+        )}
       </div>
 
       <main>
@@ -131,10 +209,17 @@ export default function App() {
         </div>
 
         <aside>
-          <h3>Sources</h3>
+          {live && (
+            <>
+              <h3>Inbox {inbox.length > 0 && <span className="count">{inbox.length}</span>}</h3>
+              <InboxPanel messages={inbox} />
+            </>
+          )}
+          <h3 className={live ? "spaced" : ""}>Sources</h3>
           <SourcesPanel sources={latestSources} highlight={highlight} />
         </aside>
       </main>
+      <Toasts items={toasts} onDismiss={(id) => setToasts((t) => t.filter((m) => m.id !== id))} />
 
       <footer>
         <div className="suggestions">

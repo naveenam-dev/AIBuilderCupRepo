@@ -24,7 +24,10 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="Acme Second Brain", version="0.1.0", lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=s.cors_origins, allow_methods=["*"], allow_headers=["*"])
+    origins = list(s.cors_origins)
+    if s.public_api_url:  # this project's Firebase Hosting origins stream /api/chat directly from Cloud Run
+        origins += [f"https://{s.gcp_project}.web.app", f"https://{s.gcp_project}.firebaseapp.com"]
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"])
     app.include_router(router)
     if s.frontend_dist.is_dir():  # single-container deploy: serve the built React app
         app.mount("/", StaticFiles(directory=s.frontend_dist, html=True), name="frontend")
