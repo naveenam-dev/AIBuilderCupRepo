@@ -8,23 +8,86 @@ An agentic knowledge fabric for engineering on-call. It turns runbooks, Slack th
 
 ## Architecture
 
-```
-Firebase Hosting (React UI) ──/api/**──► Cloud Run: FastAPI
-        │   └─ /api/chat streams (SSE) directly from Cloud Run (Hosting rewrites buffer streams)
-        │
-        ├─ Firebase Auth ── persona custom tokens · Google sign-in ── ID token on every API call
-        ├─ Firestore (live listeners) ── own approval cards · own inbox of pages
-        └─ FCM web push ── pages arrive as notifications
+```mermaid
+flowchart TB
+    U["Engineer's browser<br/>React + Vite UI"]
 
-Cloud Run: FastAPI
-  ├─ Agent: Google Agent Development Kit (LlmAgent + Runner) ── Gemini on Vertex AI
-  │     │   budgets via before_tool / before_model callbacks; submit_sop ends every run
-  │     └─ Tool registry ── search_knowledge · get_service_status · get_service_info · get_oncall
-  │                         check_availability · create_incident_ticket* · send_chat_message*  (*approval)
-  ├─ Grounding guard: citations must point at evidence this user retrieved
-  ├─ Retrieval: dense (gemini-embedding-001) + BM25/FTS → Reciprocal Rank Fusion, ACL pre-filter
-  ├─ AlloyDB (knowledge): pgvector HNSW + GIN FTS + ACL, one SQL query, IAM database auth
-  └─ Firestore (operational state): approvals (transactional), audit log, inboxes, device tokens, org graph
+    subgraph FB["Firebase"]
+        direction LR
+        H["Hosting<br/>CDN for the UI"]
+        AUTH["Authentication<br/>persona tokens · Google sign-in"]
+        FCM["Cloud Messaging<br/>web push"]
+    end
+
+    subgraph CR["Cloud Run · FastAPI"]
+        API["API routes<br/>/api/chat (SSE) · /api/actions"]
+        AGENT["ADK agent<br/>LlmAgent + Runner · budget callbacks"]
+        GUARD["Grounding guard<br/>citation verification"]
+        TOOLS["Tool registry + approval queue<br/>role-filtered tools"]
+        RET["Retrieval service<br/>hybrid search + RRF · RBAC pre-filter"]
+        ING["Ingestion<br/>chunk → embed → upsert"]
+    end
+
+    subgraph DATA["Google Cloud data & AI"]
+        direction LR
+        VX["Vertex AI<br/>Gemini 3.5 Flash · gemini-embedding-001"]
+        ADB[("AlloyDB for PostgreSQL<br/>pgvector HNSW · full-text · ACL")]
+        FS[("Firestore<br/>approvals · audit · inboxes · org graph")]
+    end
+
+    EXT["Enterprise systems<br/>Jira · Calendar · Monitoring (mock)<br/>Confluence · Slack · Jira · Email (seed)"]
+
+    U -- "GET /" --> H
+    U -. "sign-in" .-> AUTH
+    H -- "/api/** rewrite" --> API
+    U == "ask (SSE, direct)" ==> API
+    API -- "verify ID token" --> AUTH
+    API ==> AGENT
+    AGENT == "Gemini calls" ==> VX
+    AGENT ==> TOOLS
+    AGENT -- "submit_sop" --> GUARD
+    GUARD -- "verified procedure" --> API
+    TOOLS == "search_knowledge" ==> RET
+    RET == "hybrid SQL" ==> ADB
+    RET -- "embed query" --> VX
+    TOOLS -- "queue · audit · org graph" --> FS
+    TOOLS -- "pages" --> FCM
+    TOOLS -- "approved actions" --> EXT
+    EXT -- "seed exports" --> ING
+    ING -- "embed + upsert" --> ADB
+    FS -. "live listeners" .-> U
+    FCM -. "push" .-> U
+```
+
+### Ask → approve → page, step by step
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor P as Priya (SRE on-call)
+    participant UI as Browser
+    participant API as Cloud Run API
+    participant A as ADK agent
+    participant G as Gemini (Vertex AI)
+    participant DB as AlloyDB
+    participant FS as Firestore
+    actor S as Sofia (ledger on-call)
+
+    P->>UI: "payments-api is throwing 502s"
+    UI->>API: POST /api/chat with Firebase ID token
+    API->>A: run with only the tools Priya's roles allow
+    loop until submit_sop (at most 12 tool calls)
+        A->>G: plan the next step
+        G-->>A: tool calls
+        A->>DB: hybrid search, role filter inside SQL
+        A->>FS: on-call, calendars, queue the page
+    end
+    A->>A: grounding guard verifies every citation
+    API-->>UI: streamed trace + verified procedure
+    P->>UI: Approve the page
+    UI->>API: POST /api/actions/{id}/approve
+    API->>FS: transaction: run once, write Sofia's inbox
+    FS-->>S: live listener update + FCM push
 ```
 
 Two databases, each for what it does best: **AlloyDB** answers "which authorized chunks are most relevant" in one hybrid SQL query; **Firestore** holds small per-user, transactional state that the browser watches live.
