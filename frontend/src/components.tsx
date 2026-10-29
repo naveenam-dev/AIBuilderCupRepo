@@ -80,7 +80,10 @@ export function Trace({ items, running }: { items: TraceItem[]; running: boolean
   );
 }
 
-export function ActionCard({ action, onDecide }: { action: Action; onDecide: (id: string, d: "approve" | "reject") => void }) {
+// `awaiting`: the requester's name when someone else is viewing; only the requester may approve (server-enforced).
+export function ActionCard({ action, onDecide, awaiting }: {
+  action: Action; onDecide: (id: string, d: "approve" | "reject") => void; awaiting?: string;
+}) {
   const r = action.result ?? {};
   return (
     <div className={`action ${action.status}`}>
@@ -88,7 +91,9 @@ export function ActionCard({ action, onDecide }: { action: Action; onDecide: (id
         <span className="action-kind">{action.tool === "create_incident_ticket" ? "Jira" : "Chat"}</span>
         <span className="action-summary">{action.summary}</span>
       </div>
-      {action.status === "pending" ? (
+      {action.status === "pending" && awaiting ? (
+        <div className="action-result muted">Awaiting {awaiting}'s approval</div>
+      ) : action.status === "pending" ? (
         <div className="action-buttons">
           <button className="btn primary" onClick={() => onDecide(action.id, "approve")}>Approve</button>
           <button className="btn" onClick={() => onDecide(action.id, "reject")}>Reject</button>
@@ -109,8 +114,9 @@ export function ActionCard({ action, onDecide }: { action: Action; onDecide: (id
   );
 }
 
-export function SopCard({ sop, actions, onDecide, onCite }: {
+export function SopCard({ sop, actions, onDecide, onCite, awaiting }: {
   sop: Sop; actions: Record<string, Action>; onDecide: (id: string, d: "approve" | "reject") => void; onCite: (chunkId: string) => void;
+  awaiting?: string;
 }) {
   const index = new Map(sop.sources.map((s, i) => [s.chunk_id, i + 1]));
   const linked = new Set(sop.steps.flatMap((s) => s.action_ids));
@@ -143,14 +149,14 @@ export function SopCard({ sop, actions, onDecide, onCite }: {
                 ),
               )}
             </div>
-            {s.action_ids.map((id) => actions[id] && <ActionCard key={id} action={actions[id]} onDecide={onDecide} />)}
+            {s.action_ids.map((id) => actions[id] && <ActionCard key={id} action={actions[id]} onDecide={onDecide} awaiting={awaiting} />)}
           </li>
         ))}
       </ol>
       {Object.values(actions).some((a) => !linked.has(a.id)) && (
         <div className="extra-actions">
           <h4>Other proposed actions</h4>
-          {Object.values(actions).filter((a) => !linked.has(a.id)).map((a) => <ActionCard key={a.id} action={a} onDecide={onDecide} />)}
+          {Object.values(actions).filter((a) => !linked.has(a.id)).map((a) => <ActionCard key={a.id} action={a} onDecide={onDecide} awaiting={awaiting} />)}
         </div>
       )}
       {sop.gaps.length > 0 && (
@@ -163,9 +169,12 @@ export function SopCard({ sop, actions, onDecide, onCite }: {
   );
 }
 
-export function TurnView({ turn, actions, onDecide, onCite }: {
+export function TurnView({ turn, actions, onDecide, onCite, viewerId }: {
   turn: Turn; actions: Record<string, Action>; onDecide: (id: string, d: "approve" | "reject") => void; onCite: (c: string) => void;
+  viewerId?: string;
 }) {
+  // After switching identity, earlier turns' cards stay visible but read-only.
+  const awaiting = viewerId && viewerId !== turn.persona.user_id ? turn.persona.name.split(" ")[0] : undefined;
   const own = Object.fromEntries(turn.actionIds.filter((id) => actions[id]).map((id) => [id, actions[id]]));
   return (
     <section className="turn">
@@ -177,7 +186,7 @@ export function TurnView({ turn, actions, onDecide, onCite }: {
         </div>
       </div>
       <Trace items={turn.trace} running={turn.running} />
-      {turn.sop && <SopCard sop={turn.sop} actions={own} onDecide={onDecide} onCite={onCite} />}
+      {turn.sop && <SopCard sop={turn.sop} actions={own} onDecide={onDecide} onCite={onCite} awaiting={awaiting} />}
       {turn.error && <div className="error">⚠ {turn.error}</div>}
     </section>
   );

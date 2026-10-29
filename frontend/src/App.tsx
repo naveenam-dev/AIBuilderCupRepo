@@ -204,7 +204,7 @@ export default function App() {
                 checks live telemetry and the org graph, then builds a step-by-step procedure with approvable actions.</p>
             </div>
           )}
-          {turns.map((t, i) => <TurnView key={i} turn={t} actions={actions} onDecide={decide} onCite={cite} />)}
+          {turns.map((t, i) => <TurnView key={i} turn={t} actions={actions} onDecide={decide} onCite={cite} viewerId={persona?.user_id} />)}
           <div ref={endRef} />
         </div>
 
