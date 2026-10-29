@@ -31,7 +31,7 @@ flowchart TB
     subgraph DATA["Google Cloud data & AI"]
         direction LR
         VX["Vertex AI<br/>Gemini 3.5 Flash · gemini-embedding-001"]
-        ADB[("AlloyDB for PostgreSQL<br/>pgvector HNSW · full-text · ACL")]
+        ADB[("AlloyDB Omni on a VM<br/>pgvector HNSW · full-text · ACL")]
         FS[("Firestore<br/>approvals · audit · inboxes · org graph")]
     end
 
@@ -69,7 +69,7 @@ sequenceDiagram
     participant API as Cloud Run API
     participant A as ADK agent
     participant G as Gemini (Vertex AI)
-    participant DB as AlloyDB
+    participant DB as AlloyDB Omni
     participant FS as Firestore
     actor S as Sofia (ledger on-call)
 
@@ -90,7 +90,7 @@ sequenceDiagram
     FS-->>S: live listener update + FCM push
 ```
 
-Two databases, each for what it does best: **AlloyDB** answers "which authorized chunks are most relevant" in one hybrid SQL query; **Firestore** holds small per-user, transactional state that the browser watches live.
+Two databases, each for what it does best: **AlloyDB Omni** (the AlloyDB engine, self-run on a Compute Engine VM) answers "which authorized chunks are most relevant" in one hybrid SQL query; **Firestore** holds small per-user, transactional state that the browser watches live.
 
 | Concern | Where |
 |---|---|
@@ -132,15 +132,18 @@ To run the tests (offline: fake embedder, in-memory state): `.venv\Scripts\pytho
 
 ## Deploy
 ```powershell
-./infra/setup_alloydb.ps1                                      # AlloyDB (billable, ~20 min); reads ALLOYDB_PASSWORD from backend/.env
+./infra/setup_omni.ps1                                         # AlloyDB Omni VM (billable, ~5 min); reads OMNI_PASSWORD from backend/.env
+gcloud compute start-iap-tunnel omni-vm 5432 --local-host-port=localhost:15432 --zone us-central1-b   # second terminal
 cd backend
-.venv\Scripts\python -m scripts.init_alloydb second-brain-sa@aibuildercupprj.iam   # schema + ingest + grants
+.venv\Scripts\python -m scripts.init_alloydb --omni            # schema + ingest through the tunnel
 .venv\Scripts\python -m scripts.setup_firebase                 # Firestore rules + org graph seed (once)
-cd ..; ./infra/deploy_cloudrun.ps1                             # Cloud Run: AlloyDB + Firestore + Firebase Auth + FCM
+cd ..; ./infra/deploy_cloudrun.ps1                             # Cloud Run: Omni (Direct VPC egress) + Firestore + Firebase Auth + FCM
 cd frontend; npm run build; cd ../backend
 .venv\Scripts\python -m scripts.deploy_hosting                 # UI to Firebase Hosting (/api/** → Cloud Run)
 ```
-No passwords live in the cloud: Cloud Run reaches AlloyDB with IAM database auth, and signs Firebase custom tokens as its own service account.
+The Omni VM has no public IP: Cloud Run reaches it over Direct VPC egress, and the firewall admits port 5432 only from that subnet and from IAP. The database password lives in Secret Manager, mounted into Cloud Run as `OMNI_PASSWORD`. Cloud Run signs Firebase custom tokens as its own service account.
+
+Omni runs the same SQL as managed AlloyDB, so switching back is a deploy flag: `./infra/setup_alloydb.ps1`, then `scripts.init_alloydb <iam_db_user>` and `./infra/deploy_cloudrun.ps1 -Store alloydb` (Python Connector with passwordless IAM database auth). Omni is free for prototyping and demos; production use needs an Omni subscription, and you run backups, upgrades and high availability yourself.
 
 ## Demo script (about 5 minutes)
 1. **Open two windows** on https://aibuildercupprj.web.app: one as **Sofia** (ledger on-call), one as **Priya** (SRE on-call). Optionally click **Turn on alerts** in Sofia's window.

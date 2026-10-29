@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     embedder: Literal["vertex", "fake"] = "vertex"
 
     # --- Storage ---
-    vector_store: Literal["memory", "alloydb"] = "memory"
+    # memory: in-process (dev); alloydb: managed AlloyDB; omni: AlloyDB Omni on a VM (same SQL, direct connection)
+    vector_store: Literal["memory", "alloydb", "omni"] = "memory"
     # AlloyDB instance URI: projects/<p>/locations/<r>/clusters/<c>/instances/<i>
     alloydb_instance_uri: str = ""
     alloydb_user: str = "postgres"
@@ -30,6 +31,12 @@ class Settings(BaseSettings):
     alloydb_ip_type: Literal["PUBLIC", "PRIVATE", "PSC"] = "PUBLIC"
     # IAM database auth: no password; ALLOYDB_USER is the service account email minus ".gserviceaccount.com".
     alloydb_iam_auth: bool = False
+    # AlloyDB Omni on a Compute Engine VM (VECTOR_STORE=omni); the password comes from Secret Manager on Cloud Run.
+    omni_host: str = ""
+    omni_port: int = 5432
+    omni_user: str = "postgres"
+    omni_password: str = ""
+    omni_database: str = "postgres"
 
     # --- Data ---
     seed_dir: Path = BACKEND_DIR / "seed_data"

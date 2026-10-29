@@ -5,7 +5,9 @@ Hybrid query in a single SQL statement:
   * dense ranking: cosine distance on an HNSW index
   * sparse ranking: Postgres full-text search (OR-semantics tsquery, ts_rank_cd)
   * Reciprocal Rank Fusion computed in SQL
-Connects through the AlloyDB Python Connector (IAM-authorized TLS, no proxy or VPC needed for public IP).
+Two ways to reach the database (same SQL either way):
+  * managed AlloyDB (VECTOR_STORE=alloydb): AlloyDB Python Connector, IAM-authorized TLS, optional IAM DB auth
+  * AlloyDB Omni on a VM (VECTOR_STORE=omni): a direct Postgres connection over the private VPC, password auth
 """
 import json
 from pathlib import Path
@@ -48,17 +50,25 @@ def _vec_literal(v: list[float]) -> str:
 
 class AlloyDBStore(VectorStore):
     def __init__(self, settings: Settings):
-        from google.cloud.alloydbconnector import Connector  # optional dependency, imported lazily
-
-        from app.gcp import get_credentials
-
         self.s = settings
-        self._connector = Connector(
-            credentials=get_credentials(), enable_iam_auth=settings.alloydb_iam_auth, ip_type=settings.alloydb_ip_type
-        )
+        self._omni = settings.vector_store == "omni"
+        if not self._omni:
+            from google.cloud.alloydbconnector import Connector  # optional dependency, imported lazily
+
+            from app.gcp import get_credentials
+
+            self._connector = Connector(
+                credentials=get_credentials(), enable_iam_auth=settings.alloydb_iam_auth, ip_type=settings.alloydb_ip_type
+            )
         self._ensure_schema()
 
     def _connect(self):
+        if self._omni:
+            import pg8000.dbapi
+
+            # Private VPC path (Cloud Run Direct VPC egress -> VM); the firewall admits only Cloud Run and IAP.
+            return pg8000.dbapi.connect(user=self.s.omni_user, password=self.s.omni_password, host=self.s.omni_host,
+                                        port=self.s.omni_port, database=self.s.omni_database, timeout=15)
         auth = {} if self.s.alloydb_iam_auth else {"password": self.s.alloydb_password}
         return self._connector.connect(
             self.s.alloydb_instance_uri, "pg8000", user=self.s.alloydb_user, db=self.s.alloydb_database, **auth

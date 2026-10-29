@@ -68,7 +68,7 @@ def build_container(settings: Settings, llm_client=None, use_llm: bool = True) -
         if settings.embedder == "vertex"
         else FakeEmbedder()
     )
-    if settings.vector_store == "alloydb":
+    if settings.vector_store in ("alloydb", "omni"):  # same store and SQL; only the connection differs
         from app.retrieval.alloydb_store import AlloyDBStore
 
         store: VectorStore = AlloyDBStore(settings)

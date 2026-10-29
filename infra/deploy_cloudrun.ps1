@@ -1,11 +1,15 @@
 # Builds the container remotely with Cloud Build and deploys to Cloud Run (no local Docker needed).
 # With -Firebase (default): Firestore state, Firebase Auth and FCM push. Run backend/scripts/setup_firebase.py once first.
+# -Store omni (default): AlloyDB Omni on the omni-vm VM, reached over Direct VPC egress; password from Secret Manager.
 param(
   [string]$Project = "aibuildercupprj",
   [string]$Region = "us-central1",
   [string]$Service = "second-brain",
-  [ValidateSet("memory", "alloydb")][string]$Store = "alloydb",
+  [ValidateSet("memory", "alloydb", "omni")][string]$Store = "omni",
   [string]$AlloyDbInstanceUri = "projects/aibuildercupprj/locations/us-central1/clusters/second-brain/instances/primary",
+  [string]$OmniVm = "omni-vm",
+  [string]$OmniZone = "us-central1-b",
+  [string]$OmniSecret = "omni-postgres-password",
   [bool]$Firebase = $true,
   [int]$MaxInstances = 3,
   [ValidateSet("adk", "native")][string]$AgentRuntime = "adk"
@@ -20,15 +24,26 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
 if (-not (gcloud iam service-accounts list --project $Project --filter "email=$Sa" --format "value(email)")) {
   gcloud iam service-accounts create $SaName --display-name "Second Brain runtime" --project $Project
 }
-# Least privilege: Vertex AI, AlloyDB connector/IAM login, Firestore, FCM; signs its own Firebase custom tokens.
-foreach ($role in "roles/aiplatform.user", "roles/alloydb.client", "roles/alloydb.databaseUser", "roles/serviceusage.serviceUsageConsumer",
-                  "roles/datastore.user", "roles/firebasecloudmessaging.admin") {
+# Least privilege: Vertex AI, Firestore, FCM; signs its own Firebase custom tokens.
+$Roles = @("roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer", "roles/datastore.user", "roles/firebasecloudmessaging.admin")
+if ($Store -eq "alloydb") { $Roles += @("roles/alloydb.client", "roles/alloydb.databaseUser") }  # connector + IAM login
+foreach ($role in $Roles) {
   gcloud projects add-iam-policy-binding $Project --member "serviceAccount:$Sa" --role $role --condition=None --quiet | Out-Null
 }
 gcloud iam service-accounts add-iam-policy-binding $Sa --member "serviceAccount:$Sa" --role roles/iam.serviceAccountTokenCreator --project $Project --quiet | Out-Null
 
 $JwtSecret = -join ((1..48) | ForEach-Object { [char](Get-Random -Minimum 65 -Maximum 90) })
 $Vars = @("GCP_PROJECT=$Project", "VECTOR_STORE=$Store", "JWT_SECRET=$JwtSecret", "AGENT_RUNTIME=$AgentRuntime")
+$Extra = @()
+if ($Store -eq "omni") {
+  # Private IP of the Omni VM; Cloud Run reaches it through Direct VPC egress (no connector, no public IP).
+  $OmniIp = gcloud compute instances describe $OmniVm --zone $OmniZone --project $Project --format "value(networkInterfaces[0].networkIP)"
+  if (-not $OmniIp) { throw "VM $OmniVm not found" }
+  gcloud secrets add-iam-policy-binding $OmniSecret --member "serviceAccount:$Sa" --role roles/secretmanager.secretAccessor --project $Project --quiet | Out-Null
+  $Vars += "OMNI_HOST=$OmniIp"
+  $Extra += @("--set-secrets", "OMNI_PASSWORD=${OmniSecret}:latest",
+              "--network", "default", "--subnet", "default", "--vpc-egress", "private-ranges-only")
+}
 if ($Store -eq "alloydb") {
   # Passwordless: the service account authenticates to Postgres as an IAM database user.
   $Vars += @("ALLOYDB_INSTANCE_URI=$AlloyDbInstanceUri", "ALLOYDB_IAM_AUTH=true", "ALLOYDB_USER=$SaName@$Project.iam")
@@ -55,5 +70,5 @@ Set-Content -Path $EnvFile -Value $Yaml -Encoding ascii
 # State lives in Firestore, so several instances can serve traffic.
 gcloud run deploy $Service --source $Root --region $Region --project $Project `
   --service-account $Sa --allow-unauthenticated --memory 1Gi --cpu 1 --max-instances $MaxInstances --timeout 300 `
-  --env-vars-file $EnvFile
+  --env-vars-file $EnvFile @Extra
 Remove-Item $EnvFile -ErrorAction SilentlyContinue
